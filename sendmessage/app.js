@@ -12,39 +12,35 @@ const { TABLE_NAME } = process.env;
 
 exports.handler = async (event) => {
   let connectionData;
+  let senderData;
   console.log("receive send message request");
 
-  const postAction = JSON.parse(event.body).action;
   const postData = JSON.parse(event.body).data;
 
-  if (postAction === "subscribe") {
-    const updateParams = {
-      TableName: TABLE_NAME,
-      Key: { connectionId: event.requestContext.connectionId },
-      UpdateExpression: "set #channel = :channel",
-      ExpressionAttributeNames: { "#channel": "channel" },
-      ExpressionAttributeValues: { ":channel": postData },
-      ReturnValues: "UPDATED_NEW",
-    };
-
-    try {
-      await ddb.update(updateParams).promise();
-    } catch (e) {
-      console.log("logging update item error message");
-      console.log(e.stack);
-      return { statusCode: 500, body: e.stack };
-    }
+  //Get the sender's channel
+  const getParam = {
+    TableName: TABLE_NAME,
+    Key: { connectionId: event.requestContext.connectionId },
+  };
+  try {
+    senderData = await ddb.get(getParam).promise();
+    console.log("return sender data");
+    console.log(senderData);
+  } catch (e) {
+    console.log("get item error message");
+    console.log(e.stack);
+    return { statusCode: 500, body: e.stack };
   }
+  //TO-DO scan is not optimised, but it gets the job done
+  const params = {
+    TableName: TABLE_NAME,
+    ProjectionExpression: "connectionId",
+    FilterExpression: "#channel = :channel",
+    ExpressionAttributeNames: { "#channel": "channel" },
+    ExpressionAttributeValues: { ":channel": senderData.Item.channel },
+  };
 
   try {
-    //TO-DO scan is not optimised, but it gets the job one
-    const params = {
-      TableName: TABLE_NAME,
-      ProjectionExpression: "connectionId",
-      FilterExpression: "#channel = :channel",
-      ExpressionAttributeNames: { "#channel": "channel" },
-      ExpressionAttributeValues: { ":channel": "general" },
-    };
     connectionData = await ddb.scan(params).promise();
     // connectionData = await ddb
     //   .scan({ TableName: TABLE_NAME, ProjectionExpression: "connectionId" })

@@ -22,7 +22,7 @@ Resources:
     Properties:
       Name: SimpleChatWebSocket
       ProtocolType: WEBSOCKET
-      RouteSelectionExpression: "$request.body.message"
+      RouteSelectionExpression: "$request.body.action"
   ConnectRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -80,6 +80,25 @@ Resources:
       IntegrationType: AWS_PROXY
       IntegrationUri:
         Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendMessageFunction.Arn}/invocations
+  SubscribeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SimpleChatWebSocket
+      RouteKey: subscribe
+      AuthorizationType: NONE
+      OperationName: SubscribeRoute
+      Target: !Join
+        - "/"
+        - - "integrations"
+          - !Ref SubscribeInteg
+  SubscribeInteg:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref SimpleChatWebSocket
+      Description: Subscribe Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SubscribeFunction.Arn}/invocations
   Deployment:
     Type: AWS::ApiGatewayV2::Deployment
     DependsOn:
@@ -101,13 +120,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: "connectionId"
           AttributeType: "S"
-        # - AttributeName: "channel"
-        #   AttributeType: "S"
       KeySchema:
         - AttributeName: "connectionId"
           KeyType: "HASH"
-        # - AttributeName: "channel"
-        #   KeyType: "RANGE"
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
@@ -183,6 +198,33 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref SendMessageFunction
       Principal: apigateway.amazonaws.com
+  SubscribeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: subscribe/
+      Handler: app.handler
+      MemorySize: 256
+      Runtime: nodejs12.x
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TableName
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TableName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - "execute-api:ManageConnections"
+              Resource:
+                - !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SimpleChatWebSocket}/*"
+  SubscribePermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - SimpleChatWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SubscribeFunction
+      Principal: apigateway.amazonaws.com
 
 Outputs:
   ConnectionsTableArn:
@@ -200,6 +242,10 @@ Outputs:
   SendMessageFunctionArn:
     Description: "SendMessage function ARN"
     Value: !GetAtt SendMessageFunction.Arn
+
+  SubscribeFunctionArn:
+    Description: "Subscribe function ARN"
+    Value: !GetAtt SubscribeFunction.Arn
 
   WebSocketURI:
     Description: "The WSS Protocol URI to connect to"
